@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -28,6 +29,15 @@ GITEA = 'https://git.nicholstech.org'
 UPSTREAM = 'https://github.com/open-webui/open-terminal.git'
 IMAGE = 'git.nicholstech.org/nichols-homelab/open-terminal'
 REQUIRED_PR_CONTEXT = 'Homelab fork validation / image-smoke (pull_request)'
+RELEASE_PATTERN = r'[0-9]+\.[0-9]+\.[0-9]+'
+VERSION_PATTERN = (RELEASE_PATTERN + r'(?:-(?:a|b|rc)[0-9]+)?(?:\.post[0-9]+)?'
+                   r'(?:\.dev[0-9]+)?(?:_[a-z0-9]+(?:[._-][a-z0-9]+)*)?')
+PYTHON_VERSION = re.compile(r'(?P<release>' + RELEASE_PATTERN + r')'
+    r'(?:(?P<pre>a|b|rc)(?P<pre_number>[0-9]+))?'
+    r'(?:\.post(?P<post>[0-9]+))?(?:\.dev(?P<dev>[0-9]+))?'
+    r'(?:\+(?P<local>[a-z0-9]+(?:[._-][a-z0-9]+)*))?', re.IGNORECASE)
+IMAGE_REFERENCE = re.compile(re.escape(IMAGE) + r':(?P<version>' + VERSION_PATTERN
+    + r')-homelab-sha-(?P<head>[0-9a-f]{40})@sha256:(?P<digest>[0-9a-f]{64})')
 TARGETS = {
     'clusters/random/open-terminal/deployment.yaml': ('Deployment', 'open-terminal', 'open-terminal'),
     'clusters/random/open-terminal/github-bundle-backup.yaml': ('CronJob', 'github-bundle-backup', 'backup'),
@@ -36,6 +46,56 @@ TARGETS = {
 
 class Failure(RuntimeError):
     pass
+
+
+def project_version(text):
+    version = tomllib.loads(text).get('project', {}).get('version')
+    parsed = PYTHON_VERSION.fullmatch(version) if isinstance(version, str) else None
+    if not parsed:
+        raise Failure('Unsupported candidate version: require x.y.z with optional a/b/rc, .post, .dev or +local suffix; no stable version is inferred')
+    normalized = '.'.join(str(int(part)) for part in parsed['release'].split('.'))
+    if parsed['pre']:
+        normalized += '-' + parsed['pre'].lower() + str(int(parsed['pre_number']))
+    for suffix in ('post', 'dev'):
+        if parsed[suffix] is not None:
+            normalized += '.' + suffix + str(int(parsed[suffix]))
+    if parsed['local']:
+        normalized += '_' + parsed['local'].lower()
+    return normalized
+
+
+def versioned_image_tag(version, head):
+    if not re.fullmatch(VERSION_PATTERN, version) or not re.fullmatch(r'[0-9a-f]{40}', head):
+        raise Failure('Publishing requires the candidate x.y.z version and exact 40-character commit SHA')
+    tag = version + '-homelab-sha-' + head
+    if len(tag) > 128:
+        raise Failure('Versioned image tag exceeds Docker\'s 128-character limit')
+    return IMAGE + ':' + tag
+
+
+def validate_gitops_image_policy(api, revision, files):
+    """Use the owning repository's image rules at the exact inspected base."""
+    data = api.request(f'/repos/{GITOPS}/contents/scripts/validate-manifests.py?ref={revision}')
+    with tempfile.TemporaryDirectory(prefix='gitops-image-policy-') as directory:
+        script = Path(directory) / 'validate-manifests.py'
+        script.write_bytes(base64.b64decode(data['content']))
+        runner = '''import importlib.util,json,sys,yaml
+spec = importlib.util.spec_from_file_location('gitops_policy', sys.argv[1])
+policy = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(policy)
+errors = []
+for path, text in json.load(sys.stdin).items():
+    for document in yaml.safe_load_all(text):
+        if document:
+            policy.validate_images(document, errors, path, set())
+if errors:
+    print('\\n'.join(errors))
+    raise SystemExit(1)
+'''
+        result = run(['python3', '-c', runner, str(script)], input=json.dumps(files),
+                     cwd=directory, capture=False, check=False, timeout=60)
+        if result.returncode:
+            raise Failure('The owning GitOps repository rejected candidate image references; no GitOps commit created')
 
 
 def public_env(source=None):
@@ -108,8 +168,10 @@ def image_container(documents, target):
 
 def update_image(text, target, image):
     """Preserve formatting and prove that only the intended image field changed."""
-    if not re.fullmatch(re.escape(IMAGE) + r':sha-[0-9a-f]{40}@sha256:[0-9a-f]{64}', image):
+    reference = IMAGE_REFERENCE.fullmatch(image)
+    if not reference:
         raise Failure('Refusing an image outside the immutable fork registry reference')
+    versioned_image_tag(reference['version'], reference['head'])
     documents = list(yaml.safe_load_all(text))
     expected = copy.deepcopy(documents)
     container = image_container(expected, target)
@@ -291,26 +353,32 @@ class Upgrade:
             files[path] = (data, base64.b64decode(data['content']).decode())
         return files
 
-    def deployed(self, head):
+    def deployed(self, head, version):
         base = self.api.head(GITOPS)
         files = self.files(base)
         images = [image_container(list(yaml.safe_load_all(text)), TARGETS[path])['image']
                   for path, (_, text) in files.items()]
         matched = (len(set(images)) == 1 and
-                   bool(re.fullmatch(re.escape(IMAGE + ':sha-' + head) + r'@sha256:[0-9a-f]{64}', images[0])))
+                   bool(re.fullmatch(re.escape(versioned_image_tag(version, head)) + r'@sha256:[0-9a-f]{64}', images[0])))
         return base if matched else None
 
     def deploy(self, image, source_head):
+        reference = IMAGE_REFERENCE.fullmatch(image)
+        if not reference or reference['head'] != source_head:
+            raise Failure('GitOps image reference must name the exact tested source commit')
         base = self.api.head(GITOPS)
         files = self.files(base)
         changes = []
+        candidates = {}
         for path, (data, text) in files.items():
             changed = update_image(text, TARGETS[path], image)
+            candidates[path] = changed
             if changed != text:
                 changes.append({'operation': 'update', 'path': path, 'sha': data['sha'],
                                 'content': base64.b64encode(changed.encode()).decode()})
         if not changes:
             return base
+        validate_gitops_image_policy(self.api, base, candidates)
         branch = 'automation/open-terminal-' + source_head[:12] + '-' + base[:12]
         # Branch creation pins the exact inspected main commit. The file API
         # supplies blob SHAs as a second guard against concurrent changes.
@@ -337,12 +405,12 @@ class Upgrade:
         merge_exact(self.api, GITOPS, pr['number'], head, base)
         return head
 
-    def publish(self, local_image, head):
+    def publish(self, local_image, head, version):
         token = os.environ.get('REGISTRY_TOKEN', '').strip()
         username = os.environ.get('REGISTRY_USERNAME', '').strip()
         if not token or not username:
             raise Failure('REGISTRY_TOKEN and REGISTRY_USERNAME are required for publishing')
-        tag = IMAGE + ':sha-' + head
+        tag = versioned_image_tag(version, head)
         with tempfile.TemporaryDirectory(prefix='registry-auth-') as auth:
             env = public_env()
             env['DOCKER_CONFIG'] = auth
@@ -367,11 +435,12 @@ class Upgrade:
                  '+refs/heads/main:refs/remotes/upstream/main')
         base = self.git('rev-parse', 'refs/remotes/origin/main')
         upstream = self.git('rev-parse', 'refs/remotes/upstream/main')
+        base_version = project_version(self.git('show', base + ':pyproject.toml'))
         self.stage = 'preserve upstream release tags'
         tags = self.sync_tags()
         already_merged = run(['git', 'merge-base', '--is-ancestor', upstream, base],
                             cwd=self.checkout, check=False).returncode == 0
-        deployed = self.deployed(base) if already_merged else None
+        deployed = self.deployed(base, base_version) if already_merged else None
         if deployed:
             verify_backup(FORK, base)
             verify_backup(GITOPS, deployed)
@@ -411,6 +480,7 @@ class Upgrade:
                         'terminal persistence/API smoke tests. Any version is eligible when compatible.')
                     self.pr_url = pr['html_url']
                 self.stage = 'build candidate'
+                version = project_version((worktree / 'pyproject.toml').read_text())
                 local_image = 'open-terminal-candidate:' + head
                 run(['docker', 'build', '--pull', '--build-arg', 'SOURCE_REVISION=' + head,
                      '--label', 'org.opencontainers.image.revision=' + head,
@@ -434,7 +504,7 @@ class Upgrade:
                 verify_backup(FORK, head)
                 self.verify_tags(tags)
                 self.stage = 'publish tested image'
-                image = self.publish(local_image, head)
+                image = self.publish(local_image, head, version)
                 self.stage = 'update GitOps'
                 gitops_head = self.deploy(image, head)
                 self.stage = 'verify GitOps backup'

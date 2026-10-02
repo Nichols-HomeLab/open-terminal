@@ -14,7 +14,7 @@ sync = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(sync)
 HEAD = 'a' * 40
 BASE = 'b' * 40
-IMAGE = sync.IMAGE + ':sha-' + HEAD + '@sha256:' + 'c' * 64
+IMAGE = sync.IMAGE + ':0.14.0-homelab-sha-' + HEAD + '@sha256:' + 'c' * 64
 OLD_IMAGE = sync.IMAGE + ':old@sha256:' + 'd' * 64
 DEPLOYMENT = '''# Preserve comments and unrelated settings.
 apiVersion: apps/v1
@@ -75,9 +75,63 @@ class ImageUpdateTests(unittest.TestCase):
 
     def test_mutable_or_foreign_target_is_rejected(self):
         target = sync.TARGETS['clusters/random/open-terminal/deployment.yaml']
-        for image in (sync.IMAGE + ':latest', IMAGE.replace(sync.IMAGE, 'outside/image')):
+        for image in (sync.IMAGE + ':latest', IMAGE.replace(sync.IMAGE, 'outside/image'),
+                      IMAGE.replace('0.14.0-homelab-', ''), IMAGE.replace(HEAD, HEAD[:12])):
             with self.subTest(image=image), self.assertRaises(sync.Failure):
                 sync.update_image(DEPLOYMENT, target, image)
+
+
+class VersionedImageTests(unittest.TestCase):
+    def test_versions_preserve_prerelease_and_local_information(self):
+        for original, expected in {'0.14.0': '0.14.0', '00.014.00': '0.14.0',
+                '0.15.0rc1': '0.15.0-rc1', '0.15.0.dev1': '0.15.0.dev1',
+                '0.15.0rc1.dev2+ABC.3': '0.15.0-rc1.dev2_abc.3',
+                '1.2.3.post1': '1.2.3.post1'}.items():
+            with self.subTest(version=original):
+                version = sync.project_version('[project]\nversion = "' + original + '"')
+                self.assertEqual(version, expected)
+                self.assertIsNotNone(sync.IMAGE_REFERENCE.fullmatch(
+                    sync.versioned_image_tag(version, HEAD) + '@sha256:' + 'c' * 64))
+
+    def test_incomplete_or_unrecognized_versions_are_not_guessed(self):
+        for value in ('1.2', 'latest', '1!2.3.4', '1.2.3-preview7'):
+            with self.subTest(version=value), self.assertRaises(sync.Failure):
+                sync.project_version('[project]\nversion = "' + value + '"')
+        with self.assertRaisesRegex(sync.Failure, '128-character'):
+            sync.versioned_image_tag('1.2.3_' + 'a' * 80, HEAD)
+
+    def test_publish_uses_candidate_version_and_full_source_sha(self):
+        upgrade = sync.Upgrade.__new__(sync.Upgrade)
+        digest = sync.IMAGE + '@sha256:' + 'c' * 64
+        def command(args, **kwargs):
+            output = '["' + digest + '"]' if args[:3] == ['docker', 'image', 'inspect'] else ''
+            return subprocess.CompletedProcess(args, 0, stdout=output)
+        with patch.dict(sync.os.environ, {'REGISTRY_TOKEN': 'test', 'REGISTRY_USERNAME': 'test'}), \
+                patch.object(sync, 'run', side_effect=command) as run:
+            result = upgrade.publish('candidate', HEAD,
+                sync.project_version('[project]\nversion="0.14.0"'))
+        self.assertEqual(result, IMAGE)
+        self.assertIn(['docker', 'tag', 'candidate', IMAGE.split('@')[0]],
+            [c.args[0] for c in run.call_args_list])
+
+    def test_deployment_requires_matching_version_commit_and_digest_on_both_resources(self):
+        upgrade = sync.Upgrade.__new__(sync.Upgrade)
+        upgrade.api = Mock()
+        upgrade.api.head.return_value = BASE
+        for image, expected in ((IMAGE, BASE), (IMAGE.replace('0.14.0', '0.14.1'), None),
+                (IMAGE.replace(HEAD, 'e' * 40), None), (IMAGE.replace('0.14.0-homelab-', ''), None)):
+            with self.subTest(image=image):
+                upgrade.files = lambda revision: {path: ({}, text.replace(OLD_IMAGE, image))
+                    for path, text in zip(sync.TARGETS, (DEPLOYMENT, CRONJOB))}
+                self.assertEqual(upgrade.deployed(HEAD, '0.14.0'), expected)
+
+    def test_owning_repository_policy_failure_blocks_deployment(self):
+        api = Mock()
+        policy = 'def validate_images(document, errors, source, exceptions):\n    errors.append("test policy rejection")\n'
+        api.request.return_value = {'content': base64.b64encode(policy.encode()).decode()}
+        with self.assertRaisesRegex(sync.Failure, 'owning GitOps repository rejected'):
+            sync.validate_gitops_image_policy(api, BASE, {'deployment.yaml': DEPLOYMENT})
+        self.assertIn('?ref=' + BASE, api.request.call_args.args[0])
 
 
 class MergeApi:
@@ -260,10 +314,11 @@ class RecoveryTests(unittest.TestCase):
         upgrade.checkout = Path('/tmp')
         upgrade.git_url = 'http://internal/repo.git'
         upgrade.git_auth_env = lambda: {}
-        upgrade.git = lambda *args, **kwargs: HEAD if args[0] == 'rev-parse' else ''
+        upgrade.git = lambda *args, **kwargs: HEAD if args[0] == 'rev-parse' else (
+            '[project]\nversion="0.14.0"' if args[0] == 'show' else '')
         upgrade.sync_tags = lambda: {'refs/tags/v1': HEAD}
         upgrade.verify_tags = Mock()
-        upgrade.deployed = lambda head: BASE
+        upgrade.deployed = lambda head, version: BASE
         with patch.object(sync, 'verify_backup') as backup, \
                 patch.object(sync, 'run', return_value=subprocess.CompletedProcess([], 0)):
             self.assertIsNone(upgrade.execute())
@@ -292,9 +347,11 @@ class GitOpsTests(unittest.TestCase):
                 for i, (path, text) in enumerate(sources.items())}
         upgrade.files = files
         upgrade.pr = lambda *args: {'html_url': 'https://example/pr/1', 'number': 1}
-        with patch.object(sync, 'merge_exact') as merge:
+        with patch.object(sync, 'merge_exact') as merge, patch.object(sync, 'validate_gitops_image_policy') as policy:
             self.assertEqual(upgrade.deploy(IMAGE, HEAD), HEAD)
             merge.assert_called_once_with(upgrade.api, sync.GITOPS, 1, HEAD, BASE)
+            policy.assert_called_once_with(upgrade.api, BASE,
+                {path: text.replace(OLD_IMAGE, IMAGE) for path, text in sources.items()})
         changes = next(data['files'] for path, data in calls if path.endswith('/contents'))
         self.assertEqual(len(changes), 2)
         for i, item in enumerate(changes):

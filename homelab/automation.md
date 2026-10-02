@@ -8,7 +8,13 @@ Never create upstream-style `vX.Y.Z` tags on local commits; upstream owns those
 tags. New upstream tags are fetched into an isolated local namespace and pushed
 additively and atomically to Gitea, then verified on GitHub. A conflicting tag
 stops automation without overwriting either copy. Images use immutable
-`sha-<full-source-commit>` tags plus registry digests.
+`<upstream-version>-homelab-sha-<full-source-commit>` tags plus registry digests.
+The version comes from the candidate's `pyproject.toml`, parsed with `tomllib`.
+The three-part release is normalized without losing prerelease information:
+`0.15.0rc1` becomes `0.15.0-rc1`, `.dev1` stays `.dev1`, and `+abc` becomes `_abc`.
+Unsupported version spellings stop the run instead of inventing a stable release.
+Tags must fit Docker's 128-character limit. For example, stable 0.14.0 produces
+`0.14.0-homelab-sha-<40-character-commit>@sha256:<64-character-digest>`.
 
 `homelab-upgrade.yml` runs daily at 09:23 UTC or on manual dispatch. One upgrade
 runs at a time. The job has a 150-minute limit; builds, smoke tests, pushes,
@@ -74,6 +80,12 @@ The updater reads the current Gitea `k3s-fluxcd` main and changes only:
 Both edits share one API commit. YAML is parsed before and after editing and
 compared to prove no other field changed. The new branch is pinned to the
 inspected base commit; each file operation includes its original blob SHA.
+Before creating that branch, the coordinator fetches the owning repository's
+`scripts/validate-manifests.py` at the inspected main commit and executes its
+image checks on both candidate documents in a temporary directory with a clean
+environment. No image-version exceptions are supplied. This invokes the actual
+current GitOps image policy; the full manifest validator additionally renders
+the complete Flux graph and remains part of the owning repository's CI.
 The committed files are fetched and compared with the validated content. A PR
 then merges using the exact same base/head and fast-forward guards.
 

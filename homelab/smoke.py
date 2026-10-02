@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import secrets
 import subprocess
+import sys
 import tempfile
 import time
 import tomllib
@@ -21,6 +22,33 @@ def docker(*args, input=None, check=True, timeout=120):
         ['docker', *args], input=input, text=True, capture_output=True,
         check=check, timeout=timeout,
     )
+
+
+def report_failure(containers, api_key, error):
+    """Print bounded diagnostics only for this test's synthetic containers.
+
+    Never dump docker inspect/config/environment: CI has production credentials,
+    but none are passed to these network-isolated containers. Redact even the
+    generated test API key, including if an exception contains it.
+    """
+    def emit(value):
+        print(str(value).replace(api_key, "<redacted-smoke-key>")[-12000:], file=sys.stderr)
+
+    emit(f"Smoke failure: {type(error).__name__}: {error}")
+    if isinstance(error, subprocess.CalledProcessError):
+        emit(error.stderr or error.stdout or "Docker command failed without output")
+    for container in containers:
+        emit(f"Synthetic smoke container: {container}")
+        for args in (
+            ('inspect', '--format', '{{json .State}}', container),
+            ('logs', '--tail', '100', container),
+        ):
+            try:
+                result = docker(*args, check=False, timeout=15)
+                emit(result.stdout)
+                emit(result.stderr)
+            except Exception as diagnostic_error:
+                emit(f"Diagnostic unavailable: {type(diagnostic_error).__name__}")
 
 
 def main():
@@ -122,6 +150,9 @@ assert pathlib.Path("/home/user/.config/tea/config.yml").stat().st_mode & 0o777 
                 containers.remove(container)
         print(f'PASS: Open Terminal {expected}; source install and pip check; required tools; '
               'UID 0/drop ALL/no-new-privileges; API authentication/execution; workspace survives replacement')
+    except Exception as error:
+        report_failure(containers, api_key, error)
+        raise
     finally:
         for container in containers:
             docker('rm', '-f', container, check=False)

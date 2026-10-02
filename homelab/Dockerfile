@@ -17,7 +17,13 @@ RUN python -m pip install --no-cache-dir --upgrade . \
 COPY homelab/start.sh homelab/git-credential.py /opt/homelab/
 COPY homelab/tools.lock.json homelab/install-tools.py /opt/homelab/
 COPY homelab/ssh_config /etc/ssh/ssh_config.d/10-homelab.conf
-RUN chmod 755 /opt/homelab/start.sh /opt/homelab/git-credential.py
+# Docker seeds new named volumes from this directory. The inherited upstream
+# HOME is UID 1000/mode 0700; our UID 0 runtime has no DAC_OVERRIDE capability.
+# Normalize ownership at build time so a fresh persistent workspace can start.
+RUN chmod 755 /opt/homelab/start.sh /opt/homelab/git-credential.py \
+    && chown -R 0:0 /home/user \
+    && chown 0:0 /home \
+    && chmod 755 /home /home/user
 ENV HOME=/home/user SHELL=/bin/bash DOTNET_ROOT=/opt/dotnet \
     DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1 \
     PYTHONDONTWRITEBYTECODE=1 OPEN_TERMINAL_MULTI_USER=false \

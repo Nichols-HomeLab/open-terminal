@@ -11,7 +11,7 @@ stops automation without overwriting either copy. Images use immutable
 `sha-<full-source-commit>` tags plus registry digests.
 
 `homelab-upgrade.yml` runs daily at 09:23 UTC or on manual dispatch. One upgrade
-runs at a time. The job has a 100-minute limit; builds, smoke tests, pushes,
+runs at a time. The job has a 150-minute limit; builds, smoke tests, pushes,
 network requests and mirror polling have additional finite limits.
 
 ## Integration and validation
@@ -23,6 +23,34 @@ versions, can merge automatically when the custom image builds and
 `python3 homelab/smoke.py IMAGE` succeeds. The smoke suite checks the actual
 installed application, dependency consistency, required tools, authentication,
 command execution, and a persistent workspace across container replacements.
+
+Every PR targeting main also runs the independent `Homelab fork validation`
+workflow, including maintenance PRs. It checks out the exact PR head and runs
+coordinator tests, an image build and the runtime smoke suite. The job receives
+no repository secrets, does not publish images, and has an 80-minute deadline.
+Automatic merging is restricted to candidates within the authoritative Gitea
+repository; an external fork PR is never merged by the coordinator.
+
+After observing the first real run, protect main with this exact native Actions
+status context:
+
+```
+Homelab fork validation / image-smoke (pull_request)
+```
+
+The coordinator waits at most 45 minutes for that context on the exact candidate
+SHA. Missing, failed, cancelled and skipped checks do not permit a merge. Its
+manually posted `homelab/image-smoke` status is supplemental evidence and does
+not substitute for the PR check. Scheduled and manually dispatched workflows
+do not natively post commit statuses, so neither is suitable as a required
+branch-protection context. A no-upstream-change recovery run merges no fork PR
+and therefore needs no new PR status on the existing main commit.
+
+Automated integration PRs deliberately build twice: once in credential-free
+PR validation, once in the coordinator that retains the tested local image for
+publication. The jobs can run concurrently. This avoids trusting an unverified
+image rebuilt after a remote test, or introducing an image-artifact transport
+just to remove the duplicate build.
 
 Merging uses `fast-forward-only`, the tested head SHA and a check that main has
 not advanced. A changed base or PR head stops the run; the next invocation
@@ -78,7 +106,7 @@ Configure these Gitea repository settings before enabling Actions:
   The workflow also uses this service identity as `GITEA_USERNAME` for Git HTTP
   authentication; split these variables if the two credentials gain different owners.
 - Allow fast-forward-only PR merging on both repositories. Configure required
-  status checks as appropriate; the coordinator never forces a blocked merge.
+  status check above on the fork; the coordinator never forces a blocked merge.
 
 No terminal service-account token, Talos configuration, SSH private key, or
 production terminal API key is supplied to CI. Credentials are never embedded in

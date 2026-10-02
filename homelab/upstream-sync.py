@@ -27,6 +27,7 @@ GITOPS = 'Nichols-HomeLab/k3s-fluxcd'
 GITEA = 'https://git.nicholstech.org'
 UPSTREAM = 'https://github.com/open-webui/open-terminal.git'
 IMAGE = 'git.nicholstech.org/nichols-homelab/open-terminal'
+REQUIRED_PR_CONTEXT = 'Homelab fork validation / image-smoke (pull_request)'
 TARGETS = {
     'clusters/random/open-terminal/deployment.yaml': ('Deployment', 'open-terminal', 'open-terminal'),
     'clusters/random/open-terminal/github-bundle-backup.yaml': ('CronJob', 'github-bundle-backup', 'backup'),
@@ -131,6 +132,8 @@ def merge_exact(api, repo, pr, head, base):
     if api.head(repo) != base:
         raise Failure(f'{repo} main advanced; candidate retained for a fresh tested run')
     details = api.request(f'/repos/{repo}/pulls/{pr}')
+    if details.get('head', {}).get('repo', {}).get('full_name') != repo:
+        raise Failure('Automatic merging is restricted to candidates in the authoritative repository')
     if details['head']['sha'] != head:
         raise Failure('Pull request head changed after validation')
     api.request(f'/repos/{repo}/pulls/{pr}/merge', {
@@ -139,6 +142,24 @@ def merge_exact(api, repo, pr, head, base):
     })
     if api.head(repo) != head:
         raise Failure('Merge readback differs from the tested commit')
+
+
+def wait_for_pr_validation(api, repo, head, timeout=2700,
+                           sleep=time.sleep, clock=time.monotonic):
+    """Require the native PR job to succeed on this exact SHA, never a skip."""
+    deadline = clock() + timeout
+    while True:
+        statuses = api.request(f'/repos/{repo}/commits/{head}/statuses?limit=100')
+        matching = [s for s in statuses if s.get('context') == REQUIRED_PR_CONTEXT]
+        latest = max(matching, key=lambda s: s.get('id', 0)) if matching else None
+        state = latest.get('status') if latest else None
+        if state == 'success':
+            return
+        if state in ('failure', 'error', 'cancelled', 'canceled', 'skipped'):
+            raise Failure(f'Required pull-request image validation reported {state}; candidate retained')
+        if clock() >= deadline:
+            raise Failure('Required pull-request image validation did not succeed within 45 minutes; candidate retained')
+        sleep(min(15, max(0, deadline - clock())))
 
 
 def verify_backup(repo, expected, timeout=60, fetch=None, ancestor=None,
@@ -399,11 +420,13 @@ class Upgrade:
                 self.stage = 'test candidate'
                 run(['python3', 'homelab/smoke.py', local_image], cwd=worktree, timeout=900, capture=False)
                 if pr:
-                    self.stage = 'merge tested candidate'
                     self.api.request(f'/repos/{FORK}/statuses/{head}', {
                         'context': 'homelab/image-smoke', 'state': 'success',
                         'description': 'Candidate image build and isolated API/persistence smoke tests passed',
                     })
+                    self.stage = 'await required pull-request image validation'
+                    wait_for_pr_validation(self.api, FORK, head)
+                    self.stage = 'merge tested candidate'
                     merge_exact(self.api, FORK, pr['number'], head, base)
                 elif self.api.head(FORK) != head:
                     raise Failure('Fork main advanced during recovery build; retry from current main')

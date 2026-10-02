@@ -1,0 +1,45 @@
+name: Homelab fork validation
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: homelab-pr-image-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  image-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - name: Install validation parser
+        run: python3 -m pip install --disable-pip-version-check 'PyYAML==6.0.3'
+      - name: Validate coordinator safeguards
+        run: python3 -m unittest discover -s homelab/tests -p 'test_*.py'
+      - name: Build exact pull request head
+        timeout-minutes: 60
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
+          docker build --pull \
+            --build-arg SOURCE_REVISION="$PR_HEAD_SHA" \
+            --label org.opencontainers.image.revision="$PR_HEAD_SHA" \
+            -f homelab/Dockerfile -t "open-terminal-pr:$PR_HEAD_SHA" .
+      - name: Check image API and persistent workspace
+        timeout-minutes: 15
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 homelab/smoke.py "open-terminal-pr:$PR_HEAD_SHA"

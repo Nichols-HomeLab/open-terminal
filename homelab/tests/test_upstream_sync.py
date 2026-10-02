@@ -81,9 +81,10 @@ class ImageUpdateTests(unittest.TestCase):
 
 
 class MergeApi:
-    def __init__(self, base=BASE, head=HEAD):
+    def __init__(self, base=BASE, head=HEAD, repo=sync.FORK):
         self.current = base
         self.pr_head = head
+        self.repo = repo
         self.merges = []
 
     def head(self, repo):
@@ -94,7 +95,7 @@ class MergeApi:
             self.merges.append(data)
             self.current = data['head_commit_id']
         else:
-            return {'head': {'sha': self.pr_head}}
+            return {'head': {'sha': self.pr_head, 'repo': {'full_name': self.repo}}}
 
 
 class MergeTests(unittest.TestCase):
@@ -109,6 +110,62 @@ class MergeTests(unittest.TestCase):
             with self.assertRaises(sync.Failure):
                 sync.merge_exact(api, sync.FORK, 3, HEAD, BASE)
             self.assertEqual(api.merges, [])
+
+    def test_external_fork_pull_request_is_not_automatically_merged(self):
+        api = MergeApi(repo='another-owner/open-terminal')
+        with self.assertRaisesRegex(sync.Failure, 'authoritative repository'):
+            sync.merge_exact(api, sync.FORK, 3, HEAD, BASE)
+        self.assertEqual(api.merges, [])
+
+
+class PullRequestValidationTests(unittest.TestCase):
+    def test_waits_for_native_pr_success_on_exact_commit(self):
+        api = Mock()
+        api.request.side_effect = [[], [{'id': 1, 'context': sync.REQUIRED_PR_CONTEXT, 'status': 'pending'}],
+            [{'id': 2, 'context': sync.REQUIRED_PR_CONTEXT, 'status': 'success'}]]
+        elapsed = [0]
+        sync.wait_for_pr_validation(api, sync.FORK, HEAD, timeout=31,
+            sleep=lambda n: elapsed.__setitem__(0, elapsed[0] + n), clock=lambda: elapsed[0])
+        self.assertEqual(elapsed[0], 30)
+        self.assertTrue(all(HEAD in c.args[0] for c in api.request.call_args_list))
+
+    def test_latest_pending_does_not_reuse_old_success(self):
+        api = Mock()
+        api.request.return_value = [
+            {'id': 1, 'context': sync.REQUIRED_PR_CONTEXT, 'status': 'success'},
+            {'id': 2, 'context': sync.REQUIRED_PR_CONTEXT, 'status': 'pending'}]
+        with self.assertRaisesRegex(sync.Failure, 'did not succeed'):
+            sync.wait_for_pr_validation(api, sync.FORK, HEAD, timeout=0)
+
+    def test_failed_or_skipped_validation_blocks_merge(self):
+        for state in ('failure', 'error', 'cancelled', 'skipped'):
+            with self.subTest(state=state):
+                api = Mock()
+                api.request.return_value = [{'id': 1, 'context': sync.REQUIRED_PR_CONTEXT, 'status': state}]
+                with self.assertRaisesRegex(sync.Failure, 'reported ' + state):
+                    sync.wait_for_pr_validation(api, sync.FORK, HEAD)
+
+    def test_manual_status_is_not_a_native_pr_validation_substitute(self):
+        api = Mock()
+        api.request.return_value = [{'id': 1, 'context': 'homelab/image-smoke', 'status': 'success'}]
+        with self.assertRaisesRegex(sync.Failure, 'did not succeed'):
+            sync.wait_for_pr_validation(api, sync.FORK, HEAD, timeout=0)
+
+    def test_validation_workflow_has_no_repository_secrets_or_branch_skips(self):
+        path = Path(__file__).parents[2] / '.gitea/workflows/homelab-pr-validation.yml'
+        text = path.read_text()
+        workflow = yaml.load(text, Loader=yaml.BaseLoader)
+        self.assertEqual(list(workflow['on']), ['pull_request'])
+        self.assertEqual(workflow['permissions'], {'contents': 'read'})
+        job = workflow['jobs']['image-smoke']
+        self.assertNotIn('if', job)
+        self.assertNotIn('secrets.', text)
+        self.assertNotIn('docker push', text)
+        self.assertNotIn('docker login', text)
+        checkout = job['steps'][0]['with']
+        self.assertEqual(checkout['ref'], '${{ github.event.pull_request.head.sha }}')
+        self.assertEqual(checkout['persist-credentials'], 'false')
+        self.assertEqual(sync.REQUIRED_PR_CONTEXT, workflow['name'] + ' / image-smoke (pull_request)')
 
 
 class BackupTests(unittest.TestCase):

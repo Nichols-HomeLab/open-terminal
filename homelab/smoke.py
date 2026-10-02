@@ -51,6 +51,28 @@ def report_failure(containers, api_key, error):
                 emit(f"Diagnostic unavailable: {type(diagnostic_error).__name__}")
 
 
+def verify_ssh_config(output):
+    """Check OpenSSH's effective configuration without opening a connection."""
+    values = {}
+    for line in output.splitlines():
+        key, _, value = line.partition(' ')
+        values.setdefault(key, []).append(value)
+    expected = {
+        'hostname': 'gitea-ssh.external.svc.cluster.local',
+        'port': '2222',
+        'user': 'git',
+        'hostkeyalias': '[git.nicholstech.org]:2222',
+        'stricthostkeychecking': 'true',
+        'userknownhostsfile': '/run/secrets/homelab/known_hosts',
+        'identitiesonly': 'yes',
+        'batchmode': 'yes',
+        'forwardagent': 'no',
+    }
+    for key, value in expected.items():
+        assert values.get(key) == [value], f'Unexpected SSH {key}: {values.get(key)}'
+    assert '/run/secrets/homelab/identity' in values.get('identityfile', [])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('image')
@@ -140,6 +162,12 @@ assert "smoke-test-placeholder" not in config
 assert pathlib.Path("/home/user/.config/tea/config.yml").stat().st_mode & 0o777 == 0o600
 '''.replace('COMMAND', repr(command))
                 docker('exec', '-i', container, 'python', '-', input=probe)
+                # ssh -G parses the system include and rejects unsafe ownership/modes.
+                # No network or usable private key is needed for this regression.
+                for user in ('0:0', '1000:1000'):
+                    verify_ssh_config(docker('exec', '--user', user, container,
+                                             'ssh', '-G', '-T',
+                                             'git.nicholstech.org').stdout)
                 tools = ['bash', 'git', 'ssh', 'curl', 'wget', 'jq', 'yq', 'rg', 'nano',
                          'python3', 'kubectl', 'helm', 'flux', 'talosctl', 'kustomize',
                          'tea', 'gh', 'sops', 'node', 'dotnet']
@@ -149,7 +177,8 @@ assert pathlib.Path("/home/user/.config/tea/config.yml").stat().st_mode & 0o777 
                 docker('rm', container)
                 containers.remove(container)
         print(f'PASS: Open Terminal {expected}; source install and pip check; required tools; '
-              'UID 0/drop ALL/no-new-privileges; API authentication/execution; workspace survives replacement')
+              'UID 0/drop ALL/no-new-privileges; API authentication/execution; '
+              'strict internal Gitea SSH configuration; workspace survives replacement')
     except Exception as error:
         report_failure(containers, api_key, error)
         raise

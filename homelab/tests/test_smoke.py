@@ -42,5 +42,32 @@ class FailureDiagnosticsTests(unittest.TestCase):
         self.assertEqual(output.getvalue().count('Diagnostic unavailable: TimeoutExpired'), 2)
 
 
+class SSHConfigTests(unittest.TestCase):
+    config = """hostname gitea-ssh.external.svc.cluster.local
+port 2222
+user git
+hostkeyalias [git.nicholstech.org]:2222
+stricthostkeychecking true
+userknownhostsfile /run/secrets/homelab/known_hosts
+identitiesonly yes
+batchmode yes
+forwardagent no
+identityfile /run/secrets/homelab/identity
+identityfile /run/secrets/homelab/host-identity
+"""
+
+    def test_accepts_strict_internal_transport_with_multiple_identities(self):
+        smoke.verify_ssh_config(self.config)
+
+    def test_rejects_wrong_route_host_key_alias_or_disabled_verification(self):
+        for old, new in (
+            ('hostname gitea-ssh.external.svc.cluster.local', 'hostname git.nicholstech.org'),
+            ('hostkeyalias [git.nicholstech.org]:2222', 'hostkeyalias git.nicholstech.org'),
+            ('stricthostkeychecking true', 'stricthostkeychecking false'),
+        ):
+            with self.subTest(new=new), self.assertRaises(AssertionError):
+                smoke.verify_ssh_config(self.config.replace(old, new))
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -21,6 +21,8 @@ COPY homelab/ssh_config /etc/ssh/ssh_config.d/10-homelab.conf
 # HOME is UID 1000/mode 0700; our UID 0 runtime has no DAC_OVERRIDE capability.
 # Normalize ownership at build time so a fresh persistent workspace can start.
 RUN chmod 755 /opt/homelab/start.sh /opt/homelab/git-credential.py \
+    && chown 0:0 /etc/ssh/ssh_config.d/10-homelab.conf \
+    && chmod 644 /etc/ssh/ssh_config.d/10-homelab.conf \
     && chown -R 0:0 /home/user \
     && chown 0:0 /home \
     && chmod 755 /home /home/user

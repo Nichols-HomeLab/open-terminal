@@ -1,0 +1,102 @@
+[
+  {
+    "name": "kubectl",
+    "version": "1.36.1",
+    "url": "https://dl.k8s.io/release/v1.36.1/bin/linux/amd64/kubectl",
+    "checksum_url": "https://dl.k8s.io/release/v1.36.1/bin/linux/amd64/kubectl.sha256",
+    "sha": "629d3f410e09bf49b64ae7079f7f0bda1191efed311f7d37fdbab0ad5b0ec2b7",
+    "algorithm": "sha256",
+    "kind": "raw",
+    "member": null
+  },
+  {
+    "name": "talosctl",
+    "version": "1.13.8",
+    "url": "https://github.com/siderolabs/talos/releases/download/v1.13.8/talosctl-linux-amd64",
+    "checksum_url": "https://github.com/siderolabs/talos/releases/download/v1.13.8/sha256sum.txt",
+    "sha": "406b56f9e4ff03b1557cc941b1f163aec8a6ebb36e28f0bbbe6d083589529261",
+    "algorithm": "sha256",
+    "kind": "raw",
+    "member": null
+  },
+  {
+    "name": "flux",
+    "version": "2.9.5",
+    "url": "https://github.com/fluxcd/flux2/releases/download/v2.9.5/flux_2.9.5_linux_amd64.tar.gz",
+    "checksum_url": "https://github.com/fluxcd/flux2/releases/download/v2.9.5/flux_2.9.5_checksums.txt",
+    "sha": "b853df82adfd7736f580692f9f734473d571606307139f8fd20c2a80dd1ff473",
+    "algorithm": "sha256",
+    "kind": "tar",
+    "member": "flux"
+  },
+  {
+    "name": "helm",
+    "version": "3.20.0",
+    "url": "https://get.helm.sh/helm-v3.20.0-linux-amd64.tar.gz",
+    "checksum_url": "https://get.helm.sh/helm-v3.20.0-linux-amd64.tar.gz.sha256sum",
+    "sha": "dbb4c8fc8e19d159d1a63dda8db655f9ffa4aac1b9a6b188b34a40957119b286",
+    "algorithm": "sha256",
+    "kind": "tar",
+    "member": "linux-amd64/helm"
+  },
+  {
+    "name": "kustomize",
+    "version": "5.8.2",
+    "url": "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.8.2/kustomize_v5.8.2_linux_amd64.tar.gz",
+    "checksum_url": "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.8.2/checksums.txt",
+    "sha": "06af0a202c2b831207d0173f9c9cdb1b30abceca0747cb3fbb72792d26055c95",
+    "algorithm": "sha256",
+    "kind": "tar",
+    "member": "kustomize"
+  },
+  {
+    "name": "yq",
+    "version": "4.54.1",
+    "url": "https://github.com/mikefarah/yq/releases/download/v4.54.1/yq_linux_amd64",
+    "checksum_url": "https://github.com/mikefarah/yq/releases/download/v4.54.1/checksums-bsd",
+    "sha": "8e34fc298390875de416e6a4afcb8cabeceb25d9aa8506c1a2f9353cf702ea5f",
+    "algorithm": "sha256",
+    "kind": "raw",
+    "member": null
+  },
+  {
+    "name": "tea",
+    "version": "0.16.0",
+    "url": "https://gitea.com/gitea/tea/releases/download/v0.16.0/tea-0.16.0-linux-amd64.xz",
+    "checksum_url": "https://gitea.com/gitea/tea/releases/download/v0.16.0/tea-0.16.0-linux-amd64.xz.sha256",
+    "sha": "92e0c966c98be0c6ca4c80b1912d08ff7887c7cb55e123542fa541842d875149",
+    "algorithm": "sha256",
+    "kind": "xz",
+    "member": null
+  },
+  {
+    "name": "node",
+    "version": "22.22.2",
+    "url": "https://nodejs.org/dist/v22.22.2/node-v22.22.2-linux-x64.tar.xz",
+    "checksum_url": "https://nodejs.org/dist/v22.22.2/SHASUMS256.txt",
+    "sha": "88fd1ce767091fd8d4a99fdb2356e98c819f93f3b1f8663853a2dee9b438068a",
+    "algorithm": "sha256",
+    "kind": "tree",
+    "member": "node-v22.22.2-linux-x64"
+  },
+  {
+    "name": "dotnet",
+    "version": "10.0.401",
+    "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.401/dotnet-sdk-10.0.401-linux-x64.tar.gz",
+    "checksum_url": "https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json",
+    "sha": "51c8b999af9e8dd9998c9edc5944e19a90788862068acd38694e098889054ce8c23d4f0c5cccfa16bf187d044562359e5ee69a9f8ad0bbe913ba90311fbce25b",
+    "algorithm": "sha512",
+    "kind": "tree",
+    "member": null
+  },
+  {
+    "name": "sops",
+    "version": "3.13.3",
+    "url": "https://github.com/getsops/sops/releases/download/v3.13.3/sops-v3.13.3.linux.amd64",
+    "checksum_url": "https://github.com/getsops/sops/releases/download/v3.13.3/sops-v3.13.3.checksums.txt",
+    "sha": "e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b",
+    "algorithm": "sha256",
+    "kind": "raw",
+    "member": null
+  }
+]

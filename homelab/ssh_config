@@ -1,0 +1,18 @@
+Host git.nicholstech.org
+  HostName gitea-ssh.external.svc.cluster.local
+  HostKeyAlias [git.nicholstech.org]:2222
+  Port 2222
+  User git
+  IdentityFile /run/secrets/homelab/identity
+Host oracle-ampere
+  HostName 10.200.200.2
+  User ubuntu
+Host *
+  IdentityFile /run/secrets/homelab/host-identity
+  IdentitiesOnly yes
+  UserKnownHostsFile /run/secrets/homelab/known_hosts
+  StrictHostKeyChecking yes
+  BatchMode yes
+  ConnectTimeout 10
+  ConnectionAttempts 1
+  ForwardAgent no

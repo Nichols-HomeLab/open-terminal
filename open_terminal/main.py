@@ -622,6 +622,11 @@ async def read_skill(
     name: str = Query(..., description="Skill name from /skills."),
     fs: UserFS = Depends(get_filesystem),
 ):
+    return await read_skill_content(http_request, name, fs)
+
+
+async def read_skill_content(http_request: Request, name: str, fs: UserFS):
+    """Resolve a name only against the already-discovered skill list."""
     for skill in await list_skills(http_request, fs):
         if skill.name != name:
             continue
@@ -636,6 +641,21 @@ async def read_skill(
         )
 
     raise HTTPException(status_code=404, detail="Skill not found")
+
+
+@app.get(
+    "/skills/{name}",
+    response_model=SkillReadResponse,
+    include_in_schema=False,
+    dependencies=[Depends(verify_api_key)],
+)
+async def read_skill_by_name(
+    http_request: Request,
+    name: str,
+    fs: UserFS = Depends(get_filesystem),
+):
+    """Read a discovered skill using OpenWebUI's native resource URL."""
+    return await read_skill_content(http_request, name, fs)
 
 
 @app.get(

@@ -1,0 +1,10 @@
+# Exact Python dependencies for ansible-core 2.21.5 (Python 3.12 base).
+ansible-core==2.21.5
+cryptography==46.0.3
+Jinja2==3.1.6
+packaging==25.0
+PyYAML==6.0.3
+resolvelib==1.2.1
+MarkupSafe==3.0.3
+cffi==2.0.0
+pycparser==2.23

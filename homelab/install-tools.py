@@ -10,6 +10,8 @@ import sys
 import tarfile
 import tempfile
 import urllib.request
+import zipfile
+import subprocess
 
 
 for tool in json.loads(Path('/opt/homelab/tools.lock.json').read_text()):
@@ -26,9 +28,24 @@ for tool in json.loads(Path('/opt/homelab/tools.lock.json').read_text()):
             shutil.copyfile(archive, destination)
         elif tool['kind'] == 'xz':
             destination.write_bytes(lzma.decompress(archive.read_bytes()))
+        elif tool['kind'] == 'zip':
+            with zipfile.ZipFile(archive) as bundle:
+                destination.write_bytes(bundle.read(tool['member']))
         elif tool['kind'] == 'tar':
             with tarfile.open(archive) as tar:
                 destination.write_bytes(tar.extractfile(tool['member']).read())
+        elif tool['kind'] == 'wheel':
+            # pip identifies a wheel from its filename; `download` alone loses
+            # the distribution/version/tags even after the digest is verified.
+            wheel = archive.with_name(Path(tool['url']).name)
+            archive.rename(wheel)
+            subprocess.run(
+                [sys.executable, '-m', 'pip', 'install', '--no-cache-dir',
+                 '--constraint', '/opt/homelab/ansible-requirements.txt', str(wheel)],
+                check=True,
+            )
+            print(f"Verified {tool['name']} {tool['version']}")
+            continue
         else:
             root = Path('/opt') / tool['name']
             root.mkdir(exist_ok=True)

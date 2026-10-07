@@ -18,8 +18,8 @@ The Dockerfile runs `pip install --upgrade .` against the copied upstream source
 checks the installed distribution against `pyproject.toml`, and runs `pip check`.
 An upstream version bump therefore changes the actual running Python package.
 The image records the checked version in `/opt/open-terminal-source-version` and
-the build commit in its OCI revision label. It does not install Open Terminal
-from a PyPI version string or continue running the old base-image package.
+the build commit in its OCI revision label. It installs the application from the
+checked fork source.
 
 `smoke.py` requires Python 3.11+ and Docker CLI access to a build/CI daemon. It
 uses synthetic credentials, an isolated named home volume and network-disabled
@@ -27,7 +27,11 @@ containers. No cluster credentials, production Secrets or host Docker socket
 mounts are needed inside the tested image. It verifies:
 
 - the installed application version/import location and dependency consistency;
-- all required CLI executables;
+- all required CLI executables and exact versions of the separately pinned
+  infrastructure clients;
+- authenticated `/skills/{name}` and legacy `/skills/read?name=` resource
+  reads, rejection of unknown/path-like names, and denied unauthenticated reads;
+- packet-capture denial when the runtime has no capture capabilities;
 - startup as UID 0 with every Linux capability dropped and no-new-privileges;
 - rejection of missing/incorrect API keys and successful authenticated execution;
 - projected-token-file kubeconfig and private tea configuration;
@@ -55,12 +59,31 @@ the published base image, but do not clone or build either predecessor repo.
 
 `tools.lock.json` records the inherited binaries and checksums, and
 `install-tools.py` is retained for deliberate toolchain refreshes or a future
-independent Python/Debian rebase. Run it at image-build time after placing the
-lock at `/opt/homelab/tools.lock.json`; without arguments it installs all entries.
-The ordinary build reuses the validated installed tools. It performs no runtime
-package installation. A future base refresh should preserve these versions or
-update the lock deliberately, supply .NET's native dependencies, rebuild, and
-pass the smoke test before updating GitOps.
+independent Python/Debian rebase. It also installs the pinned Terraform,
+OpenTofu, Stern, Cilium CLI, Hubble CLI and Ansible Core artifacts from their
+first-party release/PyPI URLs after SHA-256 verification. Their exact versions
+and hashes are in `tools.lock.json`; the Ansible Core Python dependencies are
+version constrained in `ansible-requirements.txt`. Update those locks and
+checksums deliberately, rebuild, and pass the image smoke test before changing
+the deployment reference.
+
+The image adds the Debian diagnostic packages recorded in
+`/opt/homelab/system-tools.versions` inside each built image. This inventory
+records the exact resolved package versions used by that image. The suite
+includes `dig`, `sqlite3`, `openssl`, `traceroute`, `tracepath`, `mtr`, `ip`,
+`ss`, `netstat`, `arp`, `bridge`, `ethtool`, `tcpdump`, `nc`, `socat`, `nmap`,
+`iperf3`, `whois`, `lsof`, `fping`, `arping`, `conntrack`, `nft` and `iptables`,
+alongside the existing Git, SSH, curl, wget, jq, yq, rsync and cluster CLIs.
+The base image remains pinned by digest, and package resolution uses its dated
+Debian snapshot. The update command accepts the expired snapshot metadata while
+APT continues to verify repository signatures; rebuilding from this base keeps
+the package set repeatable. The image manifest records the resolved versions.
+
+`tcpdump` is present for command compatibility and analysis of saved capture
+files. The terminal runs with all Linux capabilities dropped, so local packet
+capture is expected to fail with a permission error. The workload receives no
+`CAP_NET_RAW` or `CAP_NET_ADMIN`; use controlled, explicitly authorized remote
+capture on a host that already permits it.
 
 ## Kubernetes runtime
 

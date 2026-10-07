@@ -143,24 +143,46 @@ assert urllib.request.urlopen("http://127.0.0.1:8000/openapi.json", timeout=2).s
                     "test \"$(cat /home/user/workspace/smoke-persistence)\" = persistent-workspace-ok"
                 )
                 probe = '''import json, os, pathlib, urllib.error, urllib.request
-base = "http://127.0.0.1:8000"
-for headers in ({}, {"Authorization": "Bearer incorrect-smoke-key"}):
-    try:
-        urllib.request.urlopen(urllib.request.Request(base + "/execute", headers=headers), timeout=5)
-    except urllib.error.HTTPError as error:
-        assert error.code == 401, error.code
-    else:
-        raise AssertionError("Unauthenticated terminal access succeeded")
-headers = {"Authorization": "Bearer " + os.environ["OPEN_TERMINAL_API_KEY"], "Content-Type": "application/json"}
-request = urllib.request.Request(base + "/execute?wait=10", headers=headers,
-    data=json.dumps({"command": COMMAND, "cwd": "/home/user/workspace"}).encode())
-result = json.load(urllib.request.urlopen(request, timeout=20))
-assert result.get("exit_code") == 0, result
-config = pathlib.Path("/home/user/.kube/config").read_text()
-assert "tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token" in config
-assert "smoke-test-placeholder" not in config
-assert pathlib.Path("/home/user/.config/tea/config.yml").stat().st_mode & 0o777 == 0o600
-'''.replace('COMMAND', repr(command))
+                base = "http://127.0.0.1:8000"
+                for headers in ({}, {"Authorization": "Bearer incorrect-smoke-key"}):
+                    try:
+                        urllib.request.urlopen(urllib.request.Request(base + "/execute", headers=headers), timeout=5)
+                    except urllib.error.HTTPError as error:
+                        assert error.code == 401, error.code
+                    else:
+                        raise AssertionError("Unauthenticated terminal access succeeded")
+                headers = {"Authorization": "Bearer " + os.environ["OPEN_TERMINAL_API_KEY"], "Content-Type": "application/json"}
+                skill = pathlib.Path.home() / ".agents/skills/homelab-engineer/SKILL.md"
+                skill.parent.mkdir(parents=True, exist_ok=True)
+                skill.write_text("---\\nname: homelab-engineer\\ndescription: smoke fixture\\n---\\nSkill body\\n")
+                def get(path, authenticated=True):
+                    request = urllib.request.Request(base + path, headers=headers if authenticated else {})
+                    return urllib.request.urlopen(request, timeout=5)
+                assert get("/skills/homelab-engineer").status == 200
+                assert json.load(get("/skills/homelab-engineer"))["content"].strip() == "Skill body"
+                assert json.load(get("/skills/read?name=homelab-engineer"))["content"].strip() == "Skill body"
+                for path in ("/skills/not-installed", "/skills/%2e%2e%2fetc%2fpasswd"):
+                    try:
+                        get(path)
+                    except urllib.error.HTTPError as error:
+                        assert error.code == 404, (path, error.code)
+                    else:
+                        raise AssertionError("Unknown or path-like skill name was accepted: " + path)
+                try:
+                    get("/skills/homelab-engineer", authenticated=False)
+                except urllib.error.HTTPError as error:
+                    assert error.code == 401, error.code
+                else:
+                    raise AssertionError("Unauthenticated skill access succeeded")
+                request = urllib.request.Request(base + "/execute?wait=10", headers=headers,
+                    data=json.dumps({"command": COMMAND, "cwd": "/home/user/workspace"}).encode())
+                result = json.load(urllib.request.urlopen(request, timeout=20))
+                assert result.get("exit_code") == 0, result
+                config = pathlib.Path("/home/user/.kube/config").read_text()
+                assert "tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token" in config
+                assert "smoke-test-placeholder" not in config
+                assert pathlib.Path("/home/user/.config/tea/config.yml").stat().st_mode & 0o777 == 0o600
+                '''.replace('COMMAND', repr(command)).replace('\n                ', '\n')
                 docker('exec', '-i', container, 'python', '-', input=probe)
                 # ssh -G parses the system include and rejects unsafe ownership/modes.
                 # No network or usable private key is needed for this regression.
@@ -168,16 +190,33 @@ assert pathlib.Path("/home/user/.config/tea/config.yml").stat().st_mode & 0o777 
                     verify_ssh_config(docker('exec', '--user', user, container,
                                              'ssh', '-G', '-T',
                                              'git.nicholstech.org').stdout)
-                tools = ['bash', 'git', 'ssh', 'curl', 'wget', 'jq', 'yq', 'rg', 'nano',
-                         'python3', 'kubectl', 'helm', 'flux', 'talosctl', 'kustomize',
-                         'tea', 'gh', 'sops', 'node', 'dotnet']
+                tools = ['bash', 'git', 'ssh', 'scp', 'sftp', 'rsync', 'curl', 'wget',
+                         'jq', 'yq', 'rg', 'nano', 'python3', 'sqlite3', 'openssl',
+                         'dig', 'kubectl', 'helm', 'flux', 'talosctl', 'kustomize',
+                         'terraform', 'tofu', 'ansible', 'ansible-playbook', 'cilium',
+                         'hubble', 'stern', 'ping', 'traceroute', 'tracepath', 'mtr',
+                         'ip', 'ss', 'netstat', 'arp', 'bridge', 'ethtool', 'tcpdump',
+                         'nc', 'socat', 'nmap', 'iperf3', 'whois', 'lsof', 'fping',
+                         'arping', 'conntrack', 'nft', 'iptables', 'tea', 'gh', 'sops',
+                         'node', 'dotnet']
                 docker('exec', container, 'python', '-c',
                        'import shutil; tools=' + repr(tools) + '; assert all(shutil.which(x) for x in tools)')
+                for executable, expected_version in {
+                    'terraform': '1.16.5', 'tofu': '1.13.1', 'stern': '1.34.0',
+                    'cilium': 'v0.20.1', 'hubble': 'v1.19.4', 'ansible': '2.21.5',
+                }.items():
+                    version = docker('exec', container, executable, '--version').stdout
+                    assert expected_version in version, (executable, expected_version, version)
+                capture = docker('exec', container, 'tcpdump', '-i', 'lo', '-c', '1',
+                                 check=False, timeout=10)
+                assert capture.returncode != 0 and 'permission' in (capture.stdout + capture.stderr).lower(), (
+                    capture.returncode, capture.stdout, capture.stderr)
                 docker('stop', '--time', '15', container)
                 docker('rm', container)
                 containers.remove(container)
-        print(f'PASS: Open Terminal {expected}; source install and pip check; required tools; '
-              'UID 0/drop ALL/no-new-privileges; API authentication/execution; '
+        print(f'PASS: Open Terminal {expected}; source install and pip check; toolchain versions; '
+              'UID 0/drop ALL/no-new-privileges; API authentication/execution/skill loading; '
+              'local packet capture correctly denied without capabilities; '
               'strict internal Gitea SSH configuration; workspace survives replacement')
     except Exception as error:
         report_failure(containers, api_key, error)

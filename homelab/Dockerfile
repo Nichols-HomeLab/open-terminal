@@ -15,7 +15,7 @@ RUN python -m pip install --no-cache-dir --upgrade . \
     && python -c 'import importlib.metadata as m, pathlib, tomllib; expected=tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"]; assert m.version("open-terminal")==expected; pathlib.Path("/opt/open-terminal-source-version").write_text(expected)' \
     && mkdir -p /run/secrets/homelab /var/run/secrets/kubernetes.io/serviceaccount
 COPY homelab/start.sh homelab/git-credential.py /opt/homelab/
-COPY homelab/tools.lock.json homelab/install-tools.py /opt/homelab/
+COPY homelab/tools.lock.json homelab/install-tools.py homelab/ansible-requirements.txt /opt/homelab/
 COPY homelab/ssh_config /etc/ssh/ssh_config.d/10-homelab.conf
 # Docker seeds new named volumes from this directory. The inherited upstream
 # HOME is UID 1000/mode 0700; our UID 0 runtime has no DAC_OVERRIDE capability.
@@ -26,6 +26,22 @@ RUN chmod 755 /opt/homelab/start.sh /opt/homelab/git-credential.py \
     && chown -R 0:0 /home/user \
     && chown 0:0 /home \
     && chmod 755 /home /home/user
+# Install the homelab diagnostic suite from the base distribution.  The exact
+# resolved versions are recorded in the image for review and support receipts.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        conntrack dnsutils ethtool fping iproute2 iptables iputils-arping \
+        iputils-ping iputils-tracepath iperf3 lsof mtr-tiny net-tools netcat-openbsd \
+        nmap nftables openssl rsync sqlite3 socat tcpdump traceroute whois wget \
+    && mkdir -p /opt/homelab \
+    && dpkg-query -W -f='$${binary:Package}\t$${Version}\n' \
+        conntrack dnsutils ethtool fping iproute2 iptables iputils-arping \
+        iputils-ping iputils-tracepath iperf3 lsof mtr-tiny net-tools netcat-openbsd \
+        nmap nftables openssl rsync sqlite3 socat tcpdump traceroute whois wget \
+        | sort > /opt/homelab/system-tools.versions \
+    && rm -rf /var/lib/apt/lists/* \
+    && python /opt/homelab/install-tools.py terraform tofu stern cilium hubble ansible-core \
+    && python -m pip check
 ENV HOME=/home/user SHELL=/bin/bash DOTNET_ROOT=/opt/dotnet \
     DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1 \
     PYTHONDONTWRITEBYTECODE=1 OPEN_TERMINAL_MULTI_USER=false \

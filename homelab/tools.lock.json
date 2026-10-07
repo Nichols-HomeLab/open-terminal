@@ -98,5 +98,65 @@
     "algorithm": "sha256",
     "kind": "raw",
     "member": null
+  },
+  {
+    "name": "terraform",
+    "version": "1.16.5",
+    "url": "https://releases.hashicorp.com/terraform/1.16.5/terraform_1.16.5_linux_amd64.zip",
+    "checksum_url": "https://releases.hashicorp.com/terraform/1.16.5/terraform_1.16.5_SHA256SUMS",
+    "sha": "2bc2fcfff033265c9e02ca0351f01794eb122f62a9b2a49a3294b9e49eaab5e4",
+    "algorithm": "sha256",
+    "kind": "zip",
+    "member": "terraform"
+  },
+  {
+    "name": "tofu",
+    "version": "1.13.1",
+    "url": "https://github.com/opentofu/opentofu/releases/download/v1.13.1/tofu_1.13.1_linux_amd64.tar.gz",
+    "checksum_url": "https://github.com/opentofu/opentofu/releases/download/v1.13.1/tofu_1.13.1_SHA256SUMS",
+    "sha": "378ada19d4bc70c43732004e8159be771b23b9a5afdf059e5f8a2b3fa2c70a69",
+    "algorithm": "sha256",
+    "kind": "tar",
+    "member": "tofu"
+  },
+  {
+    "name": "stern",
+    "version": "1.34.0",
+    "url": "https://github.com/stern/stern/releases/download/v1.34.0/stern_1.34.0_linux_amd64.tar.gz",
+    "checksum_url": "https://github.com/stern/stern/releases/download/v1.34.0/checksums.txt",
+    "sha": "7754adfa653939240f7d20fff4ada9b69cda40c9e70732301f67bb8045f1ef3e",
+    "algorithm": "sha256",
+    "kind": "tar",
+    "member": "stern"
+  },
+  {
+    "name": "cilium",
+    "version": "0.20.1",
+    "url": "https://github.com/cilium/cilium-cli/releases/download/v0.20.1/cilium-linux-amd64.tar.gz",
+    "checksum_url": "https://github.com/cilium/cilium-cli/releases/download/v0.20.1/cilium-linux-amd64.tar.gz.sha256sum",
+    "sha": "24e817dcfcc8a12e325ce7547617bcbcf171c5b0b335bb24d2bb1207ba047f61",
+    "algorithm": "sha256",
+    "kind": "tar",
+    "member": "cilium"
+  },
+  {
+    "name": "hubble",
+    "version": "1.19.4",
+    "url": "https://github.com/cilium/hubble/releases/download/v1.19.4/hubble-linux-amd64.tar.gz",
+    "checksum_url": "https://github.com/cilium/hubble/releases/download/v1.19.4/hubble-linux-amd64.tar.gz.sha256sum",
+    "sha": "c7c37a5f27ed2ae2d5495c6ddbecc61cebbb841508e77af3c131e96f005ed247",
+    "algorithm": "sha256",
+    "kind": "tar",
+    "member": "hubble"
+  },
+  {
+    "name": "ansible-core",
+    "version": "2.21.5",
+    "url": "https://files.pythonhosted.org/packages/57/6f/7321059b2d1a5ea3c7e60807a5269942d93b2c11a2fc89ba8e4a3e827891/ansible_core-2.21.5-py3-none-any.whl",
+    "checksum_url": "https://pypi.org/pypi/ansible-core/2.21.5/json",
+    "sha": "08886f9f3e23d129aa98a01271c4a47833516e1cb7c737a246788cb474f41222",
+    "algorithm": "sha256",
+    "kind": "wheel",
+    "member": null
   }
 ]

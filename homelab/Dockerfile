@@ -28,7 +28,7 @@ RUN chmod 755 /opt/homelab/start.sh /opt/homelab/git-credential.py \
     && chmod 755 /home /home/user
 # Install the homelab diagnostic suite from the base distribution.  The exact
 # resolved versions are recorded in the image for review and support receipts.
-RUN apt-get update \
+RUN apt-get -o Acquire::Check-Valid-Until=false update \
     && apt-get install -y --no-install-recommends \
         conntrack dnsutils ethtool fping iproute2 iptables iputils-arping \
         iputils-ping iputils-tracepath iperf3 lsof mtr-tiny net-tools netcat-openbsd \

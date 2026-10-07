@@ -74,9 +74,10 @@ includes `dig`, `sqlite3`, `openssl`, `traceroute`, `tracepath`, `mtr`, `ip`,
 `ss`, `netstat`, `arp`, `bridge`, `ethtool`, `tcpdump`, `nc`, `socat`, `nmap`,
 `iperf3`, `whois`, `lsof`, `fping`, `arping`, `conntrack`, `nft` and `iptables`,
 alongside the existing Git, SSH, curl, wget, jq, yq, rsync and cluster CLIs.
-The base image remains pinned by digest. Debian packages are installed from
-its signed configured repositories; rebuilding later may resolve newer
-package revisions, which the image manifest captures.
+The base image remains pinned by digest, and package resolution uses its dated
+Debian snapshot. The update command accepts the expired snapshot metadata while
+APT continues to verify repository signatures; rebuilding from this base keeps
+the package set repeatable. The image manifest records the resolved versions.
 
 `tcpdump` is present for command compatibility and analysis of saved capture
 files. The terminal runs with all Linux capabilities dropped, so local packet

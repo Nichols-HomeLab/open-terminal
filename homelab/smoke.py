@@ -201,11 +201,16 @@ assert urllib.request.urlopen("http://127.0.0.1:8000/openapi.json", timeout=2).s
                          'node', 'dotnet']
                 docker('exec', container, 'python', '-c',
                        'import shutil; tools=' + repr(tools) + '; assert all(shutil.which(x) for x in tools)')
-                for executable, expected_version in {
-                    'terraform': '1.16.5', 'tofu': '1.13.1', 'stern': '1.34.0',
-                    'cilium': 'v0.20.1', 'hubble': 'v1.19.4', 'ansible': '2.21.5',
-                }.items():
-                    version = docker('exec', container, executable, '--version').stdout
+                version_checks = (
+                    ('terraform', ['--version'], '1.16.5'),
+                    ('tofu', ['--version'], '1.13.1'),
+                    ('stern', ['--version'], '1.34.0'),
+                    ('cilium', ['version', '--client'], 'v0.20.1'),
+                    ('hubble', ['--version'], 'v1.19.4'),
+                    ('ansible', ['--version'], '2.21.5'),
+                )
+                for executable, version_args, expected_version in version_checks:
+                    version = docker('exec', container, executable, *version_args).stdout
                     assert expected_version in version, (executable, expected_version, version)
                 capture = docker('exec', container, 'tcpdump', '-i', 'lo', '-c', '1',
                                  check=False, timeout=10)
